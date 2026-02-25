@@ -103,6 +103,8 @@ const App: React.FC = () => {
   const [addingUser, setAddingUser] = useState(false);
   const [adminError, setAdminError] = useState('');
   const [adminSuccess, setAdminSuccess] = useState('');
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editingPassword, setEditingPassword] = useState('');
 
   // Barcode State
   const [inputValue, setInputValue] = useState('');
@@ -207,6 +209,25 @@ const App: React.FC = () => {
       setAdminError(err.message || 'Kullanıcı eklenemedi. Kullanıcı adı zaten var olabilir.');
     } finally {
       setAddingUser(false);
+    }
+  };
+
+  const handleUpdatePassword = async (user: DBUser) => {
+    if (!editingPassword.trim()) {
+      setAdminError('Şifre boş olamaz.');
+      return;
+    }
+    try {
+      await supabaseFetch(`/users?id=eq.${user.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ password: editingPassword.trim() }),
+      });
+      setAdminSuccess(`"${user.username}" şifresi güncellendi.`);
+      setEditingUserId(null);
+      setEditingPassword('');
+      fetchUsers();
+    } catch {
+      setAdminError('Şifre güncellenemedi.');
     }
   };
 
@@ -522,24 +543,62 @@ const App: React.FC = () => {
                 ) : (
                   <div className="space-y-2">
                     {dbUsers.map((user) => (
-                      <div key={user.id} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${user.role === 'admin' ? 'bg-indigo-100 dark:bg-indigo-900/40' : 'bg-slate-100 dark:bg-slate-800'}`}>
-                            {user.role === 'admin' ? <Shield className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> : <UserIcon className="w-4 h-4 text-slate-400" />}
+                      <div key={user.id} className="bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                        <div className="flex items-center justify-between p-3">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${user.role === 'admin' ? 'bg-indigo-100 dark:bg-indigo-900/40' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                              {user.role === 'admin' ? <Shield className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> : <UserIcon className="w-4 h-4 text-slate-400" />}
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-slate-800 dark:text-white">{user.username}</p>
+                              <p className="text-[10px] text-slate-400">{user.role === 'admin' ? 'Admin' : 'Kullanıcı'} · {new Date(user.created_at).toLocaleDateString('tr-TR')}</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-sm font-semibold text-slate-800 dark:text-white">{user.username}</p>
-                            <p className="text-[10px] text-slate-400">{user.role === 'admin' ? 'Admin' : 'Kullanıcı'} · {new Date(user.created_at).toLocaleDateString('tr-TR')}</p>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => {
+                                setEditingUserId(editingUserId === user.id ? null : user.id);
+                                setEditingPassword('');
+                                setAdminError('');
+                              }}
+                              className="p-2 text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all"
+                              title="Şifre Değiştir"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            {user.username !== 'admin' && (
+                              <button
+                                onClick={() => handleDeleteUser(user)}
+                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+                                title="Kullanıcıyı Sil"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </div>
-                        {user.username !== 'admin' && (
-                          <button
-                            onClick={() => handleDeleteUser(user)}
-                            className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
-                            title="Kullanıcıyı Sil"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        {editingUserId === user.id && (
+                          <div className="px-3 pb-3 flex gap-2 border-t border-slate-200 dark:border-slate-700 pt-3">
+                            <input
+                              type="text"
+                              value={editingPassword}
+                              onChange={(e) => setEditingPassword(e.target.value)}
+                              placeholder="Yeni şifre..."
+                              className="flex-1 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white"
+                            />
+                            <button
+                              onClick={() => handleUpdatePassword(user)}
+                              className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold transition-all flex items-center gap-1"
+                            >
+                              <Check className="w-4 h-4" /> Kaydet
+                            </button>
+                            <button
+                              onClick={() => { setEditingUserId(null); setEditingPassword(''); }}
+                              className="p-2 bg-slate-200 dark:bg-slate-700 text-slate-500 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-all"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
                         )}
                       </div>
                     ))}
