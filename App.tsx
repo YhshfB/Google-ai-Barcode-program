@@ -231,6 +231,19 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateRole = async (user: DBUser, newRole: string) => {
+    try {
+      await supabaseFetch(`/users?id=eq.${user.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role: newRole }),
+      });
+      setAdminSuccess(`"${user.username}" rolü güncellendi.`);
+      fetchUsers();
+    } catch {
+      setAdminError('Rol güncellenemedi.');
+    }
+  };
+
   const handleDeleteUser = async (user: DBUser) => {
     if (user.username === 'admin') {
       setAdminError('Admin kullanıcısı silinemez.');
@@ -555,6 +568,15 @@ const App: React.FC = () => {
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
+                            {user.username !== 'admin' && (
+                              <button
+                                onClick={() => handleUpdateRole(user, user.role === 'admin' ? 'user' : 'admin')}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all border ${user.role === 'admin' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800 hover:bg-red-50 hover:text-red-500 hover:border-red-200' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200'}`}
+                                title={user.role === 'admin' ? 'Adminliği Kaldır' : 'Admin Yap'}
+                              >
+                                {user.role === 'admin' ? 'Adminliği Kaldır' : 'Admin Yap'}
+                              </button>
+                            )}
                             <button
                               onClick={() => {
                                 setEditingUserId(editingUserId === user.id ? null : user.id);
