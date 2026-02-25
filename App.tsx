@@ -20,15 +20,50 @@ import {
   Lock,
   User as UserIcon,
   Edit3,
-  FileText
+  FileText,
+  Shield,
+  Users,
+  X,
+  Check,
+  EyeOff,
+  Eye
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { BarcodeData } from './types';
 import { validateEAN13, calculateEAN13Checksum } from './utils/ean13';
 import BarcodeRenderer from './components/BarcodeRenderer';
 
+const SUPABASE_URL = 'https://kxwbonrpegsxmkuhsixe.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_PFudUPi53dptzauY1Af7oA_OiZIl5DJ';
+
+const supabaseFetch = async (path: string, options: RequestInit = {}) => {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+    ...options,
+    headers: {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation',
+      ...(options.headers || {}),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Supabase hatası');
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : [];
+};
+
+interface DBUser {
+  id: string;
+  username: string;
+  password: string;
+  role: string;
+  created_at: string;
+}
+
 const App: React.FC = () => {
-  // Helper to get default date-based filename
   const getDefaultFileName = () => {
     const now = new Date();
     const dateStr = now.toLocaleDateString('tr-TR', {
@@ -43,9 +78,14 @@ const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return localStorage.getItem('is_logged_in') === 'true';
   });
+  const [currentUser, setCurrentUser] = useState<DBUser | null>(() => {
+    const saved = localStorage.getItem('current_user');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -53,6 +93,18 @@ const App: React.FC = () => {
     return saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
   });
 
+  // Admin Panel State
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [dbUsers, setDbUsers] = useState<DBUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newRole, setNewRole] = useState('user');
+  const [addingUser, setAddingUser] = useState(false);
+  const [adminError, setAdminError] = useState('');
+  const [adminSuccess, setAdminSuccess] = useState('');
+
+  // Barcode State
   const [inputValue, setInputValue] = useState('');
   const [labelValue, setLabelValue] = useState('');
   const [productCodeValue, setProductCodeValue] = useState('');
@@ -86,22 +138,94 @@ const App: React.FC = () => {
   }, [history]);
 
   // Auth Handlers
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (username === 'admin' && password === 'admin123') {
-      setIsAuthenticated(true);
-      localStorage.setItem('is_logged_in', 'true');
-      setLoginError('');
-    } else {
-      setLoginError('Hatalı kullanıcı adı veya şifre.');
+    setLoginError('');
+    try {
+      const data = await supabaseFetch(`/users?username=eq.${encodeURIComponent(username)}&password=eq.${encodeURIComponent(password)}&select=*`);
+      if (data && data.length > 0) {
+        const user = data[0] as DBUser;
+        setIsAuthenticated(true);
+        setCurrentUser(user);
+        localStorage.setItem('is_logged_in', 'true');
+        localStorage.setItem('current_user', JSON.stringify(user));
+      } else {
+        setLoginError('Hatalı kullanıcı adı veya şifre.');
+      }
+    } catch {
+      setLoginError('Sunucuya bağlanılamadı. Lütfen tekrar deneyin.');
     }
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
+    setCurrentUser(null);
     localStorage.removeItem('is_logged_in');
+    localStorage.removeItem('current_user');
   };
 
+  // Admin Panel Handlers
+  const fetchUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const data = await supabaseFetch('/users?select=*&order=created_at.asc');
+      setDbUsers(data);
+    } catch {
+      setAdminError('Kullanıcılar yüklenemedi.');
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const openAdminPanel = () => {
+    setShowAdminPanel(true);
+    setAdminError('');
+    setAdminSuccess('');
+    fetchUsers();
+  };
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUsername.trim() || !newPassword.trim()) {
+      setAdminError('Kullanıcı adı ve şifre zorunludur.');
+      return;
+    }
+    setAddingUser(true);
+    setAdminError('');
+    setAdminSuccess('');
+    try {
+      await supabaseFetch('/users', {
+        method: 'POST',
+        body: JSON.stringify({ username: newUsername.trim(), password: newPassword.trim(), role: newRole }),
+      });
+      setAdminSuccess(`"${newUsername}" kullanıcısı eklendi.`);
+      setNewUsername('');
+      setNewPassword('');
+      setNewRole('user');
+      fetchUsers();
+    } catch (err: any) {
+      setAdminError(err.message || 'Kullanıcı eklenemedi. Kullanıcı adı zaten var olabilir.');
+    } finally {
+      setAddingUser(false);
+    }
+  };
+
+  const handleDeleteUser = async (user: DBUser) => {
+    if (user.username === 'admin') {
+      setAdminError('Admin kullanıcısı silinemez.');
+      return;
+    }
+    if (!window.confirm(`"${user.username}" kullanıcısını silmek istediğinize emin misiniz?`)) return;
+    try {
+      await supabaseFetch(`/users?id=eq.${user.id}`, { method: 'DELETE' });
+      setAdminSuccess(`"${user.username}" silindi.`);
+      fetchUsers();
+    } catch {
+      setAdminError('Kullanıcı silinemedi.');
+    }
+  };
+
+  // Barcode Handlers
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.replace(/\D/g, '').substring(0, 13);
     setInputValue(val);
@@ -126,7 +250,6 @@ const App: React.FC = () => {
     if (!str) return '';
     const match = str.match(/(.*?)(\d+)$/);
     if (!match) return str + (increment > 0 ? `-${increment}` : '');
-    
     const prefix = match[1];
     const numberStr = match[2];
     const newNumber = (BigInt(numberStr) + BigInt(increment)).toString();
@@ -136,17 +259,14 @@ const App: React.FC = () => {
 
   const generateBarcode = async () => {
     if (!validation.isValid && inputValue.length < 12) return;
-    
     setLoading(true);
     const results: BarcodeData[] = [];
     const baseNum = BigInt(inputValue.substring(0, 12));
-
     for (let i = 0; i < quantity; i++) {
       const currentBase = (baseNum + BigInt(i)).toString().padStart(12, '0');
       const checkDigit = calculateEAN13Checksum(currentBase);
       const finalCode = currentBase + checkDigit;
       const finalProductCode = productCodeValue ? incrementString(productCodeValue, i) : undefined;
-
       const newBarcode: BarcodeData = {
         id: Math.random().toString(36).substr(2, 9),
         code: finalCode,
@@ -156,7 +276,6 @@ const App: React.FC = () => {
       };
       results.push(newBarcode);
     }
-
     setBatchResults(results);
     setCurrentBarcode(results[0]);
     setHistory(prev => [...results, ...prev].slice(0, 500));
@@ -186,20 +305,11 @@ const App: React.FC = () => {
       'Barkod': item.code,
       'Oluşturulma Tarihi': new Date(item.timestamp).toLocaleString('tr-TR')
     }));
-
     const worksheet = XLSX.utils.json_to_sheet(worksheetData);
-    
-    const wscols = [
-      { wch: 30 }, 
-      { wch: 20 }, 
-      { wch: 20 }, 
-      { wch: 25 }, 
-    ];
+    const wscols = [{ wch: 30 }, { wch: 20 }, { wch: 20 }, { wch: 25 }];
     worksheet['!cols'] = wscols;
-
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Barkodlar");
-    
     const fullFileName = fileName.endsWith('.xlsx') ? fileName : `${fileName}.xlsx`;
     XLSX.writeFile(workbook, fullFileName);
   };
@@ -208,9 +318,7 @@ const App: React.FC = () => {
     const container = document.querySelector(`[data-barcode="${code}"]`);
     const svg = container?.querySelector('svg');
     if (!svg) return;
-
     const name = fileName || `barcode-${code}`;
-
     if (format === 'svg') {
       const svgData = new XMLSerializer().serializeToString(svg);
       const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
@@ -244,7 +352,7 @@ const App: React.FC = () => {
       const item = batchResults[i];
       setTimeout(() => {
         downloadBarcode(item.code, format, `${(item.label || 'barcode').replace(/[^a-z0-9]/gi, '_')}_${item.code}`);
-      }, i * 100); 
+      }, i * 100);
     }
   };
 
@@ -260,6 +368,7 @@ const App: React.FC = () => {
     }
   };
 
+  // Login Screen
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 px-6 relative overflow-hidden">
@@ -278,8 +387,8 @@ const App: React.FC = () => {
               <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Kullanıcı Adı</label>
               <div className="relative">
                 <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="admin"
@@ -292,14 +401,17 @@ const App: React.FC = () => {
               <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Şifre</label>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-                <input 
-                  type="password" 
+                <input
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-white placeholder:text-slate-600 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-12 py-4 text-white placeholder:text-slate-600 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                   required
                 />
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
               </div>
             </div>
             {loginError && (
@@ -319,7 +431,127 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-300 overflow-hidden">
-      {/* Sidebar: History */}
+      
+      {/* Admin Panel Modal */}
+      {showAdminPanel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-slate-700 bg-indigo-600">
+              <div className="flex items-center gap-3">
+                <Shield className="w-5 h-5 text-white" />
+                <h2 className="text-lg font-bold text-white">Admin Paneli</h2>
+              </div>
+              <button onClick={() => setShowAdminPanel(false)} className="p-2 rounded-xl hover:bg-white/20 text-white transition-all">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+
+              {/* Feedback */}
+              {adminError && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm p-3 rounded-xl flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  {adminError}
+                </div>
+              )}
+              {adminSuccess && (
+                <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 text-sm p-3 rounded-xl flex items-center gap-2">
+                  <Check className="w-4 h-4 flex-shrink-0" />
+                  {adminSuccess}
+                </div>
+              )}
+
+              {/* Add User Form */}
+              <div className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl p-5 border border-slate-200 dark:border-slate-700">
+                <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-indigo-500" /> Yeni Kullanıcı Ekle
+                </h3>
+                <form onSubmit={handleAddUser} className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Kullanıcı Adı</label>
+                      <input
+                        type="text"
+                        value={newUsername}
+                        onChange={(e) => setNewUsername(e.target.value)}
+                        placeholder="kullanici_adi"
+                        className="w-full mt-1 px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Şifre</label>
+                      <input
+                        type="text"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="şifre"
+                        className="w-full mt-1 px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:text-white"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Rol</label>
+                    <select
+                      value={newRole}
+                      onChange={(e) => setNewRole(e.target.value)}
+                      className="w-full mt-1 px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:text-white"
+                    >
+                      <option value="user">Kullanıcı</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={addingUser}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2"
+                  >
+                    {addingUser ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Plus className="w-4 h-4" /> Kullanıcı Ekle</>}
+                  </button>
+                </form>
+              </div>
+
+              {/* User List */}
+              <div>
+                <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-indigo-500" /> Kullanıcılar ({dbUsers.length})
+                </h3>
+                {loadingUsers ? (
+                  <div className="text-center py-6 text-slate-400 text-sm">Yükleniyor...</div>
+                ) : (
+                  <div className="space-y-2">
+                    {dbUsers.map((user) => (
+                      <div key={user.id} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${user.role === 'admin' ? 'bg-indigo-100 dark:bg-indigo-900/40' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                            {user.role === 'admin' ? <Shield className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> : <UserIcon className="w-4 h-4 text-slate-400" />}
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800 dark:text-white">{user.username}</p>
+                            <p className="text-[10px] text-slate-400">{user.role === 'admin' ? 'Admin' : 'Kullanıcı'} · {new Date(user.created_at).toLocaleDateString('tr-TR')}</p>
+                          </div>
+                        </div>
+                        {user.username !== 'admin' && (
+                          <button
+                            onClick={() => handleDeleteUser(user)}
+                            className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+                            title="Kullanıcıyı Sil"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sidebar */}
       <aside className="w-full md:w-80 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 flex flex-col h-screen">
         <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -332,13 +564,13 @@ const App: React.FC = () => {
             {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </button>
         </div>
-        
+
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           <div className="flex items-center justify-between px-2 mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Geçmiş</span>
             <History className="w-4 h-4 text-slate-400" />
           </div>
-          
+
           {history.length === 0 ? (
             <div className="text-center py-10 px-4">
               <div className="bg-slate-50 dark:bg-slate-900 rounded-full w-12 h-12 flex items-center justify-center mx-auto mb-3">
@@ -348,7 +580,7 @@ const App: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-2">
-              <button 
+              <button
                 onClick={() => exportToExcel(history, exportFileName)}
                 className="w-full flex items-center justify-center gap-2 mb-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30 rounded-xl text-xs font-bold hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all"
               >
@@ -358,13 +590,10 @@ const App: React.FC = () => {
               {history.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => {
-                    setCurrentBarcode(item);
-                    setBatchResults([]);
-                  }}
+                  onClick={() => { setCurrentBarcode(item); setBatchResults([]); }}
                   className={`w-full group text-left p-3 rounded-xl transition-all border ${
-                    currentBarcode?.id === item.id 
-                      ? 'border-indigo-200 dark:border-indigo-600 bg-indigo-50/50 dark:bg-indigo-900/20 ring-1 ring-indigo-100 dark:ring-indigo-800' 
+                    currentBarcode?.id === item.id
+                      ? 'border-indigo-200 dark:border-indigo-600 bg-indigo-50/50 dark:bg-indigo-900/20 ring-1 ring-indigo-100 dark:ring-indigo-800'
                       : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-700/50'
                   }`}
                 >
@@ -378,7 +607,7 @@ const App: React.FC = () => {
                         <p className="mono text-xs text-slate-400 dark:text-slate-500">{item.code}</p>
                       </div>
                     </div>
-                    <button 
+                    <button
                       onClick={(e) => { e.stopPropagation(); deleteHistoryItem(item.id); }}
                       className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-500 rounded-md text-slate-400 dark:text-slate-500 transition-all"
                     >
@@ -390,9 +619,33 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
-        
+
         <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col gap-3">
-          <button 
+          {/* Current user info */}
+          {currentUser && (
+            <div className="flex items-center gap-2 px-2 py-1">
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${currentUser.role === 'admin' ? 'bg-indigo-100 dark:bg-indigo-900/40' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                {currentUser.role === 'admin' ? <Shield className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> : <UserIcon className="w-3.5 h-3.5 text-slate-400" />}
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{currentUser.username}</p>
+                <p className="text-[10px] text-slate-400">{currentUser.role === 'admin' ? 'Admin' : 'Kullanıcı'}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Admin Panel Button - only for admins */}
+          {currentUser?.role === 'admin' && (
+            <button
+              onClick={openAdminPanel}
+              className="flex items-center justify-center gap-2 w-full py-2.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-xl text-xs font-bold transition-all border border-indigo-100 dark:border-indigo-800/50"
+            >
+              <Shield className="w-4 h-4" />
+              Admin Paneli
+            </button>
+          )}
+
+          <button
             onClick={handleLogout}
             className="flex items-center justify-center gap-2 w-full py-2.5 bg-slate-100 dark:bg-slate-900/80 text-slate-500 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 rounded-xl text-xs font-bold transition-all border border-slate-200 dark:border-slate-700/50"
           >
@@ -405,7 +658,7 @@ const App: React.FC = () => {
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900 p-6 md:p-10 transition-colors">
         <div className="max-w-4xl mx-auto space-y-8">
-          
+
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors">
             <div className="grid md:grid-cols-2 gap-10">
               <div className="space-y-6">
@@ -424,7 +677,6 @@ const App: React.FC = () => {
                         <input type="text" value={productCodeValue} onChange={(e) => setProductCodeValue(e.target.value)} placeholder="SKU-100" className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 dark:text-white outline-none transition-all" />
                       </div>
                     </div>
-
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase ml-1">EAN-13 Başlangıç (12 Hane)</label>
                       <div className="relative">
@@ -434,7 +686,6 @@ const App: React.FC = () => {
                         {inputValue.length >= 12 ? validation.message : 'Kalan: ' + (12 - inputValue.length) + ' rakam'}
                       </p>
                     </div>
-
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase ml-1">Adet</label>
                       <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-1.5 rounded-xl">
@@ -454,7 +705,7 @@ const App: React.FC = () => {
                 {currentBarcode ? (
                   <div className="space-y-6 w-full text-center" data-barcode={currentBarcode.code}>
                     <div className="scale-110">
-                       <BarcodeRenderer code={currentBarcode.code} width={240} height={120} />
+                      <BarcodeRenderer code={currentBarcode.code} width={240} height={120} />
                     </div>
                     <div className="flex flex-wrap items-center justify-center gap-2">
                       <button onClick={() => downloadBarcode(currentBarcode.code, 'svg')} className="flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-bold border border-indigo-100 dark:border-indigo-800">
@@ -475,7 +726,7 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Batch Results Preview */}
+          {/* Batch Results */}
           {batchResults.length > 0 && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
               <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
@@ -484,13 +735,12 @@ const App: React.FC = () => {
                     <h3 className="text-lg font-bold text-slate-800 dark:text-white">Ürün İsimlerini Girin</h3>
                     <div className="text-[10px] text-indigo-600 font-black bg-indigo-50 dark:bg-indigo-900/40 px-2 py-1 rounded-md uppercase tracking-widest">Adım 2: İsimlendirme</div>
                   </div>
-                  
                   <div className="max-w-sm space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Excel Dosya Adı</label>
                     <div className="relative">
                       <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={exportFileName}
                         onChange={(e) => setExportFileName(e.target.value)}
                         placeholder="Dosya adı belirleyin..."
@@ -499,7 +749,6 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-
                 <div className="flex flex-wrap items-center gap-2">
                   <button onClick={() => exportToExcel(batchResults, exportFileName)} className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl text-sm font-black hover:bg-emerald-700 shadow-xl shadow-emerald-500/20 transition-all active:scale-95">
                     <FileSpreadsheet className="w-5 h-5" /> Excel Listesini İndir (.xlsx)
@@ -531,8 +780,8 @@ const App: React.FC = () => {
                         <td className="p-4 mono text-xs font-medium text-indigo-600 dark:text-indigo-400">{item.code}</td>
                         <td className="p-4 w-full">
                           <div className="relative group">
-                            <input 
-                              type="text" 
+                            <input
+                              type="text"
                               value={item.label}
                               onChange={(e) => updateBatchLabel(item.id, e.target.value)}
                               placeholder="Örn: Sızma Zeytinyağı 500ml..."
@@ -542,7 +791,7 @@ const App: React.FC = () => {
                           </div>
                         </td>
                         <td className="p-4 text-center">
-                          <button 
+                          <button
                             onClick={() => removeFromBatch(item.id)}
                             className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
                             title="Barkodu Listeden Sil"
