@@ -1,0 +1,5 @@
+{
+  "name": "BarCode Pro - EAN-13 Generator",
+  "description": "A professional EAN-13 barcode generator with AI-powered GS1 prefix analysis, batch generation, and high-quality SVG exports.",
+  "requestFramePermissions": []
+}
