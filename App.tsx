@@ -160,8 +160,10 @@ const App: React.FC = () => {
         const user = data[0] as DBUser;
         setIsAuthenticated(true);
         setCurrentUser(user);
+        setHistory([]); // önceki kullanıcının geçmişini temizle
         localStorage.setItem('is_logged_in', 'true');
         localStorage.setItem('current_user', JSON.stringify(user));
+        localStorage.removeItem('barcode_history'); // eski localStorage geçmişini sil
       } else {
         setLoginError('Hatalı kullanıcı adı veya şifre.');
       }
@@ -939,3 +941,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+
