@@ -316,7 +316,7 @@ const App: React.FC = () => {
       const currentBase = (baseNum + BigInt(i)).toString().padStart(12, '0');
       const checkDigit = calculateEAN13Checksum(currentBase);
       const finalCode = currentBase + checkDigit;
-      const finalProductCode = productCodeValue ? incrementString(productCodeValue, i) : undefined;
+      const finalProductCode = productCodeValue ? incrementString(productCodeValue, i + 1) : undefined;
       const newBarcode: BarcodeData = {
         id: Math.random().toString(36).substr(2, 9),
         code: finalCode,
@@ -329,6 +329,18 @@ const App: React.FC = () => {
     setBatchResults(results);
     setCurrentBarcode(results[0]);
     setHistory(prev => [...results, ...prev].slice(0, 500));
+
+    // Bir sonraki üretim için EAN-13 başlangıcını güncelle
+    const lastCode = results[results.length - 1].code;
+    const nextBase = (BigInt(lastCode.substring(0, 12)) + BigInt(1)).toString().padStart(12, '0');
+    setInputValue(nextBase);
+    const nextValidation = validateEAN13(nextBase);
+    setValidation({ isValid: nextValidation.isValid, message: nextValidation.message });
+
+    // Ürün kodunu da güncelle
+    if (productCodeValue) {
+      setProductCodeValue(incrementString(productCodeValue, quantity + 1));
+    }
 
     // Save to Supabase
     if (currentUser) {
