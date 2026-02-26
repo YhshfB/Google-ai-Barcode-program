@@ -75,6 +75,9 @@ const App: React.FC = () => {
   };
 
   // Auth State
+  // localStorage geçmişini tamamen temizle, artık Supabase kullanıyoruz
+  localStorage.removeItem('barcode_history');
+
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return localStorage.getItem('is_logged_in') === 'true';
   });
@@ -941,4 +944,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-
