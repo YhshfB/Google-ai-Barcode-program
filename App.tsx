@@ -129,15 +129,26 @@ const App: React.FC = () => {
     }
   }, [isDarkMode]);
 
-  // Persist history
+  // Fetch history from Supabase on login
   useEffect(() => {
-    const saved = localStorage.getItem('barcode_history');
-    if (saved) setHistory(JSON.parse(saved));
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('barcode_history', JSON.stringify(history));
-  }, [history]);
+    if (!currentUser) return;
+    const fetchHistory = async () => {
+      try {
+        const data = await supabaseFetch(`/barcode_history?user_id=eq.${currentUser.id}&order=timestamp.desc&limit=500&select=*`);
+        const mapped: BarcodeData[] = data.map((item: any) => ({
+          id: item.id,
+          code: item.code,
+          label: item.label || '',
+          productCode: item.product_code,
+          timestamp: item.timestamp,
+        }));
+        setHistory(mapped);
+      } catch {
+        // sessizce geç
+      }
+    };
+    fetchHistory();
+  }, [currentUser]);
 
   // Auth Handlers
   const handleLogin = async (e: React.FormEvent) => {
@@ -313,14 +324,43 @@ const App: React.FC = () => {
     setBatchResults(results);
     setCurrentBarcode(results[0]);
     setHistory(prev => [...results, ...prev].slice(0, 500));
+
+    // Save to Supabase
+    if (currentUser) {
+      try {
+        const rows = results.map(b => ({
+          id: b.id,
+          user_id: currentUser.id,
+          code: b.code,
+          label: b.label,
+          product_code: b.productCode || null,
+          timestamp: b.timestamp,
+        }));
+        await supabaseFetch('/barcode_history', {
+          method: 'POST',
+          body: JSON.stringify(rows),
+        });
+      } catch {
+        // sessizce geç
+      }
+    }
+
     setLoading(false);
   };
 
-  const updateBatchLabel = (id: string, newLabel: string) => {
+  const updateBatchLabel = async (id: string, newLabel: string) => {
     const updated = batchResults.map(item => item.id === id ? { ...item, label: newLabel } : item);
     setBatchResults(updated);
     setHistory(prev => prev.map(item => item.id === id ? { ...item, label: newLabel } : item));
     if (currentBarcode?.id === id) setCurrentBarcode({ ...currentBarcode, label: newLabel } as BarcodeData);
+    try {
+      await supabaseFetch(`/barcode_history?id=eq.${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ label: newLabel }),
+      });
+    } catch {
+      // sessizce geç
+    }
   };
 
   const removeFromBatch = (id: string) => {
@@ -390,9 +430,14 @@ const App: React.FC = () => {
     }
   };
 
-  const deleteHistoryItem = (id: string) => {
+  const deleteHistoryItem = async (id: string) => {
     setHistory(prev => prev.filter(item => item.id !== id));
     if (currentBarcode?.id === id) setCurrentBarcode(null);
+    try {
+      await supabaseFetch(`/barcode_history?id=eq.${id}`, { method: 'DELETE' });
+    } catch {
+      // sessizce geç
+    }
   };
 
   const clearHistory = () => {
