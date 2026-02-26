@@ -313,7 +313,7 @@ const App: React.FC = () => {
     const results: BarcodeData[] = [];
     const baseNum = BigInt(inputValue.substring(0, 12));
     for (let i = 0; i < quantity; i++) {
-      const currentBase = (baseNum + BigInt(i)).toString().padStart(12, '0');
+      const currentBase = (baseNum + BigInt(i + 1)).toString().padStart(12, '0');
       const checkDigit = calculateEAN13Checksum(currentBase);
       const finalCode = currentBase + checkDigit;
       const finalProductCode = productCodeValue ? incrementString(productCodeValue, i + 1) : undefined;
