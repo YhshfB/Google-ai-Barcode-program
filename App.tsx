@@ -457,10 +457,15 @@ const App: React.FC = () => {
     }
   };
 
-  const clearHistory = () => {
+  const clearHistory = async () => {
     if (window.confirm('Tüm geçmişi silmek istediğinize emin misiniz?')) {
       setHistory([]);
       setCurrentBarcode(null);
+      if (currentUser) {
+        try {
+          await supabaseFetch(`/barcode_history?user_id=eq.${currentUser.id}`, { method: 'DELETE' });
+        } catch { }
+      }
     }
   };
 
@@ -526,7 +531,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-300 overflow-hidden">
+    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-300">
       
       {/* Admin Panel Modal */}
       {showAdminPanel && (
@@ -695,7 +700,7 @@ const App: React.FC = () => {
       )}
 
       {/* Sidebar */}
-      <aside className="w-full md:w-80 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 flex flex-col h-screen">
+      <aside className="w-full md:w-80 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 flex flex-col md:h-screen md:sticky md:top-0">
         <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-indigo-600 rounded-lg">
@@ -708,7 +713,7 @@ const App: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-64 md:max-h-none">
           <div className="flex items-center justify-between px-2 mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Geçmiş</span>
             <History className="w-4 h-4 text-slate-400" />
@@ -799,11 +804,11 @@ const App: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900 p-6 md:p-10 transition-colors">
+      <main className="flex-1 bg-slate-50 dark:bg-slate-900 p-4 md:p-10 transition-colors overflow-x-hidden">
         <div className="max-w-4xl mx-auto space-y-8">
 
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors">
-            <div className="grid md:grid-cols-2 gap-10">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10">
               <div className="space-y-6">
                 <div>
                   <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-800 dark:text-white">
@@ -898,6 +903,9 @@ const App: React.FC = () => {
                   </button>
                   <button onClick={() => downloadAllInBatch('png')} className="flex items-center gap-2 px-4 py-3 bg-slate-700 dark:bg-slate-600 text-white rounded-xl text-sm font-bold shadow-lg transition-all">
                     <ImageIcon className="w-4 h-4" /> Görselleri İndir
+                  </button>
+                  <button onClick={() => { setBatchResults([]); setCurrentBarcode(null); }} className="flex items-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/30 rounded-xl text-sm font-bold transition-all hover:bg-red-100 dark:hover:bg-red-900/40">
+                    <Trash2 className="w-4 h-4" /> Listeyi Temizle
                   </button>
                 </div>
               </div>
