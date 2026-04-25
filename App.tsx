@@ -34,7 +34,7 @@ import { validateEAN13, calculateEAN13Checksum } from './utils/ean13';
 import BarcodeRenderer from './components/BarcodeRenderer';
 
 const SUPABASE_URL = 'https://kxwbonrpegsxmkuhsixe.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_PFudUPi53dptzauY1Af7oA_OiZIl5DJ';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt4d2JvbnJwZWdzeG1rdWhzaXhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwMTEyNDcsImV4cCI6MjA4NzU4NzI0N30.F5F15PzO_5yG843Sl4TXjO_h3do7frBIAz56v6Br6Ho ';
 
 const supabaseFetch = async (path: string, options: RequestInit = {}) => {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
@@ -75,15 +75,14 @@ const App: React.FC = () => {
   };
 
   // Auth State
-  // localStorage geçmişini tamamen temizle, artık Supabase kullanıyoruz
-  localStorage.removeItem('barcode_history');
-
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem('is_logged_in') === 'true';
+    try { return localStorage.getItem('is_logged_in') === 'true'; } catch { return false; }
   });
   const [currentUser, setCurrentUser] = useState<DBUser | null>(() => {
-    const saved = localStorage.getItem('current_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('current_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
   });
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -92,9 +91,20 @@ const App: React.FC = () => {
 
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    const saved = localStorage.getItem('theme');
-    return saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    try {
+      const saved = localStorage.getItem('theme');
+      if (saved) return saved === 'dark';
+      if (typeof window !== 'undefined' && window.matchMedia) {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+    } catch { /* ignore */ }
+    return false;
   });
+
+  // localStorage temizliği - bir kez çalışır
+  useEffect(() => {
+    try { localStorage.removeItem('barcode_history'); } catch { /* ignore */ }
+  }, []);
 
   // Admin Panel State
   const [showAdminPanel, setShowAdminPanel] = useState(false);
