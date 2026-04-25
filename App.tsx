@@ -34,7 +34,7 @@ import { validateEAN13, calculateEAN13Checksum } from './utils/ean13';
 import BarcodeRenderer from './components/BarcodeRenderer';
 
 const SUPABASE_URL = 'https://kxwbonrpegsxmkuhsixe.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_PFudUPi53dptzauY1Af7oA_OiZIl5DJ';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt4d2JvbnJwZWdzeG1rdWhzaXhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwMTEyNDcsImV4cCI6MjA4NzU4NzI0N30.F5F15PzO_5yG843Sl4TXjO_h3do7frBIAz56v6Br6Ho ';
 
 const supabaseFetch = async (path: string, options: RequestInit = {}) => {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
@@ -75,15 +75,14 @@ const App: React.FC = () => {
   };
 
   // Auth State
-  // localStorage geçmişini tamamen temizle, artık Supabase kullanıyoruz
-  localStorage.removeItem('barcode_history');
-
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem('is_logged_in') === 'true';
+    try { return localStorage.getItem('is_logged_in') === 'true'; } catch { return false; }
   });
   const [currentUser, setCurrentUser] = useState<DBUser | null>(() => {
-    const saved = localStorage.getItem('current_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('current_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
   });
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -92,9 +91,20 @@ const App: React.FC = () => {
 
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    const saved = localStorage.getItem('theme');
-    return saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    try {
+      const saved = localStorage.getItem('theme');
+      if (saved) return saved === 'dark';
+      if (typeof window !== 'undefined' && window.matchMedia) {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+    } catch { /* ignore */ }
+    return false;
   });
+
+  // localStorage temizliği - bir kez çalışır
+  useEffect(() => {
+    try { localStorage.removeItem('barcode_history'); } catch { /* ignore */ }
+  }, []);
 
   // Admin Panel State
   const [showAdminPanel, setShowAdminPanel] = useState(false);
@@ -457,10 +467,15 @@ const App: React.FC = () => {
     }
   };
 
-  const clearHistory = () => {
+  const clearHistory = async () => {
     if (window.confirm('Tüm geçmişi silmek istediğinize emin misiniz?')) {
       setHistory([]);
       setCurrentBarcode(null);
+      if (currentUser) {
+        try {
+          await supabaseFetch(`/barcode_history?user_id=eq.${currentUser.id}`, { method: 'DELETE' });
+        } catch { }
+      }
     }
   };
 
@@ -526,7 +541,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-300 overflow-hidden">
+    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-300">
       
       {/* Admin Panel Modal */}
       {showAdminPanel && (
@@ -695,7 +710,7 @@ const App: React.FC = () => {
       )}
 
       {/* Sidebar */}
-      <aside className="w-full md:w-80 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 flex flex-col h-screen">
+      <aside className="w-full md:w-80 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 flex flex-col md:h-screen md:sticky md:top-0">
         <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-indigo-600 rounded-lg">
@@ -708,7 +723,7 @@ const App: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-64 md:max-h-none">
           <div className="flex items-center justify-between px-2 mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Geçmiş</span>
             <History className="w-4 h-4 text-slate-400" />
@@ -729,6 +744,13 @@ const App: React.FC = () => {
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
                 Geçmişi Excel Olarak İndir
+              </button>
+              <button 
+                onClick={clearHistory}
+                className="w-full flex items-center justify-center gap-2 mb-2 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900/30 rounded-xl text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/40 transition-all"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Geçmişi Temizle
               </button>
               {history.map((item) => (
                 <button
@@ -799,11 +821,11 @@ const App: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900 p-6 md:p-10 transition-colors">
+      <main className="flex-1 bg-slate-50 dark:bg-slate-900 p-4 md:p-10 transition-colors overflow-x-hidden">
         <div className="max-w-4xl mx-auto space-y-8">
 
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors">
-            <div className="grid md:grid-cols-2 gap-10">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10">
               <div className="space-y-6">
                 <div>
                   <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-800 dark:text-white">
@@ -898,6 +920,9 @@ const App: React.FC = () => {
                   </button>
                   <button onClick={() => downloadAllInBatch('png')} className="flex items-center gap-2 px-4 py-3 bg-slate-700 dark:bg-slate-600 text-white rounded-xl text-sm font-bold shadow-lg transition-all">
                     <ImageIcon className="w-4 h-4" /> Görselleri İndir
+                  </button>
+                  <button onClick={() => { setBatchResults([]); setCurrentBarcode(null); }} className="flex items-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/30 rounded-xl text-sm font-bold transition-all hover:bg-red-100 dark:hover:bg-red-900/40">
+                    <Trash2 className="w-4 h-4" /> Listeyi Temizle
                   </button>
                 </div>
               </div>
