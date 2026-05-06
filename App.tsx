@@ -312,67 +312,71 @@ const App: React.FC = () => {
     if (!match) return str + (increment > 0 ? `-${increment}` : '');
     const prefix = match[1];
     const numberStr = match[2];
-    const newNumber = (BigInt(numberStr) + BigInt(increment)).toString();
+    const newNumber = (parseInt(numberStr, 10) + increment).toString();
     const paddedNumber = newNumber.padStart(numberStr.length, '0');
     return prefix + paddedNumber;
   };
 
   const generateBarcode = async () => {
-    if (!validation.isValid && inputValue.length < 12) return;
+    if (!validation.isValid || inputValue.length < 12) return;
     setLoading(true);
-    const results: BarcodeData[] = [];
-    const baseNum = BigInt(inputValue.substring(0, 12));
-    for (let i = 0; i < quantity; i++) {
-      const currentBase = (baseNum + BigInt(i + 1)).toString().padStart(12, '0');
-      const checkDigit = calculateEAN13Checksum(currentBase);
-      const finalCode = currentBase + checkDigit;
-      const finalProductCode = productCodeValue ? incrementString(productCodeValue, i + 1) : undefined;
-      const newBarcode: BarcodeData = {
-        id: Math.random().toString(36).substr(2, 9),
-        code: finalCode,
-        label: labelValue ? (quantity > 1 ? `${labelValue} #${i + 1}` : labelValue) : '',
-        productCode: finalProductCode,
-        timestamp: Date.now(),
-      };
-      results.push(newBarcode);
-    }
-    setBatchResults(results);
-    setCurrentBarcode(results[0]);
-    setHistory(prev => [...results, ...prev].slice(0, 500));
-
-    // Bir sonraki üretim için EAN-13 başlangıcını güncelle
-    const lastCode = results[results.length - 1].code;
-    const nextBase = (BigInt(lastCode.substring(0, 12)) + BigInt(1)).toString().padStart(12, '0');
-    setInputValue(nextBase);
-    const nextValidation = validateEAN13(nextBase);
-    setValidation({ isValid: nextValidation.isValid, message: nextValidation.message });
-
-    // Ürün kodunu da güncelle
-    if (productCodeValue) {
-      setProductCodeValue(incrementString(productCodeValue, quantity + 1));
-    }
-
-    // Save to Supabase
-    if (currentUser) {
-      try {
-        const rows = results.map(b => ({
-          id: b.id,
-          user_id: currentUser.id,
-          code: b.code,
-          label: b.label,
-          product_code: b.productCode || null,
-          timestamp: b.timestamp,
-        }));
-        await supabaseFetch('/barcode_history', {
-          method: 'POST',
-          body: JSON.stringify(rows),
-        });
-      } catch {
-        // sessizce geç
+    try {
+      const results: BarcodeData[] = [];
+      const baseNum = parseInt(inputValue.substring(0, 12), 10);
+      for (let i = 0; i < quantity; i++) {
+        const currentBase = (baseNum + i + 1).toString().padStart(12, '0');
+        const checkDigit = calculateEAN13Checksum(currentBase);
+        const finalCode = currentBase + checkDigit;
+        const finalProductCode = productCodeValue ? incrementString(productCodeValue, i + 1) : undefined;
+        const newBarcode: BarcodeData = {
+          id: Math.random().toString(36).substr(2, 9),
+          code: finalCode,
+          label: labelValue ? (quantity > 1 ? `${labelValue} #${i + 1}` : labelValue) : '',
+          productCode: finalProductCode,
+          timestamp: Date.now(),
+        };
+        results.push(newBarcode);
       }
-    }
+      setBatchResults(results);
+      setCurrentBarcode(results[0]);
+      setHistory(prev => [...results, ...prev].slice(0, 500));
 
-    setLoading(false);
+      // Bir sonraki üretim için EAN-13 başlangıcını güncelle
+      const lastCode = results[results.length - 1].code;
+      const nextBase = (parseInt(lastCode.substring(0, 12), 10) + 1).toString().padStart(12, '0');
+      setInputValue(nextBase);
+      const nextValidation = validateEAN13(nextBase);
+      setValidation({ isValid: nextValidation.isValid, message: nextValidation.message });
+
+      // Ürün kodunu da güncelle
+      if (productCodeValue) {
+        setProductCodeValue(incrementString(productCodeValue, quantity + 1));
+      }
+
+      // Save to Supabase
+      if (currentUser) {
+        try {
+          const rows = results.map(b => ({
+            id: b.id,
+            user_id: currentUser.id,
+            code: b.code,
+            label: b.label,
+            product_code: b.productCode || null,
+            timestamp: b.timestamp,
+          }));
+          await supabaseFetch('/barcode_history', {
+            method: 'POST',
+            body: JSON.stringify(rows),
+          });
+        } catch {
+          // sessizce geç
+        }
+      }
+    } catch (err) {
+      console.error('Barkod üretme hatası:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const updateBatchLabel = async (id: string, newLabel: string) => {
